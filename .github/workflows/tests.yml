@@ -58,65 +58,38 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           if [ -n "${SENDGRID_API_KEY:-}" ] && [ -n "${MAIL_FROM:-}" ] && [ -n "${MAIL_TO:-}" ]; then
-            python - <<'PY'
-            import json, os, sys, urllib.error, urllib.request
-
-            api_key = os.environ['SENDGRID_API_KEY']
-            mail_from = os.environ['MAIL_FROM']
-            mail_to = os.environ['MAIL_TO']
-            reply_to = os.environ.get('MAIL_REPLY_TO', '')
-            repo_name = os.environ['REPO_NAME']
-            branch_name = os.environ['BRANCH_NAME']
-            action_url = os.environ['ACTION_URL']
-            job_status = os.environ['JOB_STATUS']
-
-            payload = {
-                "personalizations": [{
-                    "to": [{"email": mail_to}],
-                    "subject": f"[{repo_name}] Playwright report - {job_status}"
-                }],
-                "from": {"email": mail_from},
-                "content": [{
-                    "type": "text/html",
-                    "value": f"""
-                    <html>
-                      <body>
-                        <p>Hello,</p>
-                        <p>The Playwright test run for <b>{repo_name}</b> has finished with status: <b>{job_status}</b>.</p>
-                        <p>Branch: <b>{branch_name}</b></p>
-                        <p>Workflow: <a href="{action_url}">Open GitHub Actions</a></p>
-                        <p>Best regards,<br/>GitHub Actions</p>
-                      </body>
-                    </html>
-                    """
-                }]
-            }
-
-            if reply_to:
-                payload["reply_to"] = {"email": reply_to}
-
-            request = urllib.request.Request(
-                "https://api.sendgrid.com/v3/mail/send",
-                data=json.dumps(payload).encode('utf-8'),
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST"
-            )
-
-            try:
-                with urllib.request.urlopen(request) as response:
-                    print(f"SendGrid response status: {response.status}")
-            except urllib.error.HTTPError as e:
-                body = e.read().decode('utf-8', 'replace')
-                print(f"SendGrid API error: {e.code}")
-                print(body)
-                sys.exit(0)
-            except Exception as e:
-                print(f"SendGrid request failed: {e}")
-                sys.exit(0)
-            PY
+            python -c 'import json, os, sys, urllib.error, urllib.request
+api_key = os.environ["SENDGRID_API_KEY"]
+mail_from = os.environ["MAIL_FROM"]
+mail_to = os.environ["MAIL_TO"]
+reply_to = os.environ.get("MAIL_REPLY_TO", "")
+repo_name = os.environ["REPO_NAME"]
+branch_name = os.environ["BRANCH_NAME"]
+action_url = os.environ["ACTION_URL"]
+job_status = os.environ["JOB_STATUS"]
+payload = {
+    "personalizations": [{"to": [{"email": mail_to}], "subject": f"[{repo_name}] Playwright report - {job_status}"}],
+    "from": {"email": mail_from},
+    "content": [{"type": "text/html", "value": f"<html><body><p>Hello,</p><p>The Playwright test run for <b>{repo_name}</b> has finished with status: <b>{job_status}</b>.</p><p>Branch: <b>{branch_name}</b></p><p>Workflow: <a href=\"{action_url}\">Open GitHub Actions</a></p><p>Best regards,<br/>GitHub Actions</p></body></html>"}]}
+if reply_to:
+    payload["reply_to"] = {"email": reply_to}
+request = urllib.request.Request(
+    "https://api.sendgrid.com/v3/mail/send",
+    data=json.dumps(payload).encode("utf-8"),
+    headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+    method="POST"
+)
+try:
+    with urllib.request.urlopen(request) as response:
+        print(f"SendGrid response status: {response.status}")
+except urllib.error.HTTPError as e:
+    body = e.read().decode("utf-8", "replace")
+    print(f"SendGrid API error: {e.code}")
+    print(body)
+    sys.exit(0)
+except Exception as e:
+    print(f"SendGrid request failed: {e}")
+    sys.exit(0)'
           else
             echo "SendGrid secrets not configured; skipping email notification."
           fi
