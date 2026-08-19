@@ -46,6 +46,7 @@ jobs:
 
       - name: Send email via SendGrid
         if: always()
+        continue-on-error: true
         env:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
@@ -57,7 +58,7 @@ jobs:
         run: |
           if [ -n "${SENDGRID_API_KEY:-}" ] && [ -n "${MAIL_FROM:-}" ]; then
             python - <<'PY'
-            import json, os, urllib.request
+            import json, os, sys, urllib.error, urllib.request
 
             api_key = os.environ['SENDGRID_API_KEY']
             mail_from = os.environ['MAIL_FROM']
@@ -98,8 +99,17 @@ jobs:
                 },
                 method="POST"
             )
-            with urllib.request.urlopen(request) as response:
-                print(f"SendGrid response status: {response.status}")
+
+            try:
+                with urllib.request.urlopen(request) as response:
+                    print(f"SendGrid response status: {response.status}")
+            except urllib.error.HTTPError as e:
+                body = e.read().decode('utf-8', 'replace')
+                print(f"SendGrid API error: {e.code}")
+                print(body)
+            except Exception as e:
+                print(f"SendGrid request failed: {e}")
+                sys.exit(0)
             PY
           else
             echo "SendGrid secrets not configured; skipping email notification."
