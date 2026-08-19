@@ -8,12 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-tests:
+  smoke-tests:
+    name: Smoke tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -24,19 +25,21 @@ jobs:
           cache: maven
 
       - name: Install Playwright browsers
-        run: mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install --with-deps"
+        run: mvn -B -q -Dexec.classpathScope=test exec:java -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
 
       - name: Run tests
-        run: mvn test
+        run: mvn -B test
 
       - name: Generate Allure report
         if: always()
-        run: mvn allure:report
+        run: mvn -B allure:report
 
-      - name: Upload Allure report artifact
+      - name: Upload Allure report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
-          path: target/site/allure-maven-plugin
-          if-no-files-found: error
+          path: |
+            target/allure-results
+            target/site/allure-maven-plugin
+          if-no-files-found: warn
