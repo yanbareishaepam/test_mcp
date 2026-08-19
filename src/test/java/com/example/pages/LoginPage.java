@@ -28,5 +28,6 @@ public class LoginPage {
         usernameField.fill(username);
         passwordField.fill(password);
         loginButton.click();
+        page.waitForURL("**/inventory.html");
     }
 }

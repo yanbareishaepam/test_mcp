@@ -7,11 +7,19 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   smoke-tests:
     name: Smoke tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
@@ -28,25 +36,46 @@ jobs:
         run: mvn -B -q -Dexec.classpathScope=test exec:java -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
 
       - name: Run tests
-        run: mvn -B test
+        id: tests
+        continue-on-error: true
+        run: |
+          mvn -B test
+          echo "result=$?" >> "$GITHUB_OUTPUT"
 
       - name: Generate Allure report
         if: always()
         run: mvn -B allure:report
 
-      - name: Zip Allure report
+      - name: Prepare Pages folder
         if: always()
-        run: zip -r allure-report.zip target/site/allure-maven-plugin
+        run: |
+          mkdir -p public
+          cp -R target/site/allure-maven-plugin/* public/
+          echo "### Report status" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.tests.outputs.result }}" = "0" ]; then
+            echo "✅ Tests passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Tests failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      - name: Upload Allure report artifact
+      - name: Upload Pages artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: allure-report
-          path: allure-report.zip
-          if-no-files-found: error
+          path: public
 
-      - name: Send email with report
+      - name: Deploy to GitHub Pages
+        if: always()
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Final workflow summary
+        if: always()
+        run: |
+          echo "## Report: ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Send email notification with report link
         if: ${{ always() && secrets.SMTP_HOST != '' && secrets.SMTP_USERNAME != '' && secrets.SMTP_PASSWORD != '' }}
         uses: dawidd6/action-send-mail@v3
         with:
@@ -54,14 +83,22 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT || 587 }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Playwright test report - ${{ github.repository }} (${{ github.ref_name }})"
+          subject: "[${{ github.repository }}] Playwright report - ${{ job.status }}"
           to: yan_bareisha@epam.com
           from: GitHub Actions
-          attachments: allure-report.zip
           secure: true
           body: |
-            <p>Playwright smoke test run has finished.</p>
-            <p>Repository: ${{ github.repository }}</p>
-            <p>Branch: ${{ github.ref_name }}</p>
-            <p>Status: ${{ job.status }}</p>
-            <p>Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}</p>
+            <html>
+              <body>
+                <p>Hello,</p>
+                <p>The Playwright test run for <b>${{ github.repository }}</b> has finished with status: <b>${{ job.status }}</b>.</p>
+                <p>Branch: <b>${{ github.ref_name }}</b></p>
+                <p>Workflow run: <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Open GitHub Actions</a></p>
+                <p>Allure report: <a href="${{ steps.deployment.outputs.page_url }}">Open report</a></p>
+                <p>Best regards,<br/>GitHub Actions</p>
+              </body>
+            </html>
+
+      - name: Fail job if tests failed
+        if: steps.tests.outputs.result != '0'
+        run: exit 1
