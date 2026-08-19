@@ -32,10 +32,16 @@
             <artifactId>owner</artifactId>
             <version>1.0.12</version>
         </dependency>
-        <!-- Allure JUnit 5 integration -->
+        <!-- Allure JUnit 5 / JUnit Platform integration -->
         <dependency>
             <groupId>io.qameta.allure</groupId>
             <artifactId>allure-junit5</artifactId>
+            <version>2.24.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.qameta.allure</groupId>
+            <artifactId>allure-junit-platform</artifactId>
             <version>2.24.0</version>
             <scope>test</scope>
         </dependency>
