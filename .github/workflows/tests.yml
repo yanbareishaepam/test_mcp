@@ -38,19 +38,35 @@ jobs:
       - name: Run tests
         id: tests
         continue-on-error: true
+        shell: bash
         run: |
           mvn -B test
-          echo "result=$?" >> "$GITHUB_OUTPUT"
+          STATUS=$?
+          echo "result=${STATUS}" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Generate Allure report
         if: always()
-        run: mvn -B allure:report
+        shell: bash
+        run: |
+          if [ -d target/allure-results ]; then
+            mvn -B allure:report || true
+          else
+            mkdir -p target/site/allure-maven-plugin
+            printf '%s\n' '<html><body><h1>Allure report unavailable</h1><p>No test results were generated.</p></body></html>' > target/site/allure-maven-plugin/index.html
+          fi
 
       - name: Prepare Pages folder
         if: always()
+        shell: bash
         run: |
           mkdir -p public
-          cp -R target/site/allure-maven-plugin/* public/
+          if [ -d target/site/allure-maven-plugin ]; then
+            cp -R target/site/allure-maven-plugin/. public/
+          fi
+          if [ ! -f public/index.html ]; then
+            printf '%s\n' '<html><body><h1>Report unavailable</h1><p>The CI run did not produce a report.</p></body></html>' > public/index.html
+          fi
           echo "### Report status" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.tests.outputs.result }}" = "0" ]; then
             echo "✅ Tests passed" >> "$GITHUB_STEP_SUMMARY"
@@ -67,13 +83,19 @@ jobs:
       - name: Deploy to GitHub Pages
         if: always()
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
 
       - name: Final workflow summary
         if: always()
+        shell: bash
         run: |
-          echo "## Report: ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "## Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+          REPORT_URL="${{ steps.deployment.outputs.page_url }}"
+          if [ -z "$REPORT_URL" ]; then
+            REPORT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          fi
+          echo "## Report: $REPORT_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send email notification with report link via SendGrid
         if: ${{ always() && secrets.SENDGRID_API_KEY != '' && secrets.MAIL_FROM != '' }}
@@ -81,19 +103,25 @@ jobs:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           MAIL_TO: yan_bareisha@epam.com
-          REPORT_URL: ${{ steps.deployment.outputs.page_url }}
           ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_NAME: ${{ github.repository }}
           BRANCH_NAME: ${{ github.ref_name }}
           JOB_STATUS: ${{ job.status }}
+        shell: bash
         run: |
+          REPORT_URL="${{ steps.deployment.outputs.page_url }}"
+          if [ -z "$REPORT_URL" ]; then
+            REPORT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          fi
+          export REPORT_URL
+
           python - <<'PY'
           import json, os, urllib.request
 
           api_key = os.environ['SENDGRID_API_KEY']
           mail_from = os.environ['MAIL_FROM']
           mail_to = os.environ['MAIL_TO']
-          report_url = os.environ['REPORT_URL']
+          report_url = os.environ.get('REPORT_URL') or os.environ.get('GITHUB_SERVER_URL', '') + '/' + os.environ.get('GITHUB_REPOSITORY', '') + '/actions/runs/' + os.environ.get('GITHUB_RUN_ID', '')
           action_url = os.environ['ACTION_URL']
           repo_name = os.environ['REPO_NAME']
           branch_name = os.environ['BRANCH_NAME']
