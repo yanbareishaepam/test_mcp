@@ -45,7 +45,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Send email via SendGrid
-        if: ${{ always() && secrets.SENDGRID_API_KEY != '' && secrets.MAIL_FROM != '' }}
+        if: always()
         env:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
@@ -55,51 +55,55 @@ jobs:
           ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ job.status }}
         run: |
-          python - <<'PY'
-          import json, os, urllib.request
+          if [ -n "${SENDGRID_API_KEY:-}" ] && [ -n "${MAIL_FROM:-}" ]; then
+            python - <<'PY'
+            import json, os, urllib.request
 
-          api_key = os.environ['SENDGRID_API_KEY']
-          mail_from = os.environ['MAIL_FROM']
-          mail_to = os.environ['MAIL_TO']
-          repo_name = os.environ['REPO_NAME']
-          branch_name = os.environ['BRANCH_NAME']
-          action_url = os.environ['ACTION_URL']
-          job_status = os.environ['JOB_STATUS']
+            api_key = os.environ['SENDGRID_API_KEY']
+            mail_from = os.environ['MAIL_FROM']
+            mail_to = os.environ['MAIL_TO']
+            repo_name = os.environ['REPO_NAME']
+            branch_name = os.environ['BRANCH_NAME']
+            action_url = os.environ['ACTION_URL']
+            job_status = os.environ['JOB_STATUS']
 
-          payload = {
-              "personalizations": [{
-                  "to": [{"email": mail_to}],
-                  "subject": f"[{repo_name}] Playwright report - {job_status}"
-              }],
-              "from": {"email": mail_from},
-              "content": [{
-                  "type": "text/html",
-                  "value": f"""
-                  <html>
-                    <body>
-                      <p>Hello,</p>
-                      <p>The Playwright test run for <b>{repo_name}</b> has finished with status: <b>{job_status}</b>.</p>
-                      <p>Branch: <b>{branch_name}</b></p>
-                      <p>Workflow: <a href="{action_url}">Open GitHub Actions</a></p>
-                      <p>Best regards,<br/>GitHub Actions</p>
-                    </body>
-                  </html>
-                  """
-              }]
-          }
+            payload = {
+                "personalizations": [{
+                    "to": [{"email": mail_to}],
+                    "subject": f"[{repo_name}] Playwright report - {job_status}"
+                }],
+                "from": {"email": mail_from},
+                "content": [{
+                    "type": "text/html",
+                    "value": f"""
+                    <html>
+                      <body>
+                        <p>Hello,</p>
+                        <p>The Playwright test run for <b>{repo_name}</b> has finished with status: <b>{job_status}</b>.</p>
+                        <p>Branch: <b>{branch_name}</b></p>
+                        <p>Workflow: <a href="{action_url}">Open GitHub Actions</a></p>
+                        <p>Best regards,<br/>GitHub Actions</p>
+                      </body>
+                    </html>
+                    """
+                }]
+            }
 
-          request = urllib.request.Request(
-              "https://api.sendgrid.com/v3/mail/send",
-              data=json.dumps(payload).encode('utf-8'),
-              headers={
-                  "Authorization": f"Bearer {api_key}",
-                  "Content-Type": "application/json",
-              },
-              method="POST"
-          )
-          with urllib.request.urlopen(request) as response:
-              print(f"SendGrid response status: {response.status}")
-          PY
+            request = urllib.request.Request(
+                "https://api.sendgrid.com/v3/mail/send",
+                data=json.dumps(payload).encode('utf-8'),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(request) as response:
+                print(f"SendGrid response status: {response.status}")
+            PY
+          else
+            echo "SendGrid secrets not configured; skipping email notification."
+          fi
 
       - name: Fail job if tests failed
         if: steps.tests.outcome == 'failure'
