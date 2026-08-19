@@ -75,29 +75,66 @@ jobs:
           echo "## Report: ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "## Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Send email notification with report link
-        if: ${{ always() && secrets.SMTP_HOST != '' && secrets.SMTP_USERNAME != '' && secrets.SMTP_PASSWORD != '' }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT || 587 }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "[${{ github.repository }}] Playwright report - ${{ job.status }}"
-          to: yan_bareisha@epam.com
-          from: GitHub Actions
-          secure: true
-          body: |
-            <html>
-              <body>
-                <p>Hello,</p>
-                <p>The Playwright test run for <b>${{ github.repository }}</b> has finished with status: <b>${{ job.status }}</b>.</p>
-                <p>Branch: <b>${{ github.ref_name }}</b></p>
-                <p>Workflow run: <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Open GitHub Actions</a></p>
-                <p>Allure report: <a href="${{ steps.deployment.outputs.page_url }}">Open report</a></p>
-                <p>Best regards,<br/>GitHub Actions</p>
-              </body>
-            </html>
+      - name: Send email notification with report link via SendGrid
+        if: ${{ always() && secrets.SENDGRID_API_KEY != '' && secrets.MAIL_FROM != '' }}
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: yan_bareisha@epam.com
+          REPORT_URL: ${{ steps.deployment.outputs.page_url }}
+          ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+
+          api_key = os.environ['SENDGRID_API_KEY']
+          mail_from = os.environ['MAIL_FROM']
+          mail_to = os.environ['MAIL_TO']
+          report_url = os.environ['REPORT_URL']
+          action_url = os.environ['ACTION_URL']
+          repo_name = os.environ['REPO_NAME']
+          branch_name = os.environ['BRANCH_NAME']
+          job_status = os.environ['JOB_STATUS']
+
+          payload = {
+              "personalizations": [{
+                  "to": [{"email": mail_to}],
+                  "subject": f"[{repo_name}] Playwright report - {job_status}"
+              }],
+              "from": {"email": mail_from},
+              "content": [{
+                  "type": "text/html",
+                  "value": f"""
+                  <html>
+                    <body>
+                      <p>Hello,</p>
+                      <p>The Playwright test run for <b>{repo_name}</b> has finished with status: <b>{job_status}</b>.</p>
+                      <p>Branch: <b>{branch_name}</b></p>
+                      <p>GitHub Actions run: <a href="{action_url}">Open workflow</a></p>
+                      <p>Allure report: <a href="{report_url}">Open report</a></p>
+                      <p>Best regards,<br/>GitHub Actions</p>
+                    </body>
+                  </html>
+                  """
+              }]
+          }
+
+          req = urllib.request.Request(
+              "https://api.sendgrid.com/v3/mail/send",
+              data=json.dumps(payload).encode('utf-8'),
+              headers={
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json"
+              },
+              method="POST"
+          )
+
+          with urllib.request.urlopen(req) as response:
+              print(f"SendGrid response status: {response.status}")
+          PY
 
       - name: Fail job if tests failed
         if: steps.tests.outputs.result != '0'
