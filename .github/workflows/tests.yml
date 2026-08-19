@@ -44,55 +44,41 @@ jobs:
           path: target/site/allure-maven-plugin
           if-no-files-found: warn
 
-      - name: Send email via SendGrid
+      - name: Check SendGrid email config
         if: always()
-        continue-on-error: true
-        env:
-          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          MAIL_REPLY_TO: ${{ secrets.MAIL_REPLY_TO }}
-          REPO_NAME: ${{ github.repository }}
-          BRANCH_NAME: ${{ github.ref_name }}
-          ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          JOB_STATUS: ${{ job.status }}
         run: |
-          if [ -n "${SENDGRID_API_KEY:-}" ] && [ -n "${MAIL_FROM:-}" ] && [ -n "${MAIL_TO:-}" ]; then
-            python -c 'import json, os, sys, urllib.error, urllib.request
-api_key = os.environ["SENDGRID_API_KEY"]
-mail_from = os.environ["MAIL_FROM"]
-mail_to = os.environ["MAIL_TO"]
-reply_to = os.environ.get("MAIL_REPLY_TO", "")
-repo_name = os.environ["REPO_NAME"]
-branch_name = os.environ["BRANCH_NAME"]
-action_url = os.environ["ACTION_URL"]
-job_status = os.environ["JOB_STATUS"]
-payload = {
-    "personalizations": [{"to": [{"email": mail_to}], "subject": f"[{repo_name}] Playwright report - {job_status}"}],
-    "from": {"email": mail_from},
-    "content": [{"type": "text/html", "value": f"<html><body><p>Hello,</p><p>The Playwright test run for <b>{repo_name}</b> has finished with status: <b>{job_status}</b>.</p><p>Branch: <b>{branch_name}</b></p><p>Workflow: <a href=\"{action_url}\">Open GitHub Actions</a></p><p>Best regards,<br/>GitHub Actions</p></body></html>"}]}
-if reply_to:
-    payload["reply_to"] = {"email": reply_to}
-request = urllib.request.Request(
-    "https://api.sendgrid.com/v3/mail/send",
-    data=json.dumps(payload).encode("utf-8"),
-    headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-    method="POST"
-)
-try:
-    with urllib.request.urlopen(request) as response:
-        print(f"SendGrid response status: {response.status}")
-except urllib.error.HTTPError as e:
-    body = e.read().decode("utf-8", "replace")
-    print(f"SendGrid API error: {e.code}")
-    print(body)
-    sys.exit(0)
-except Exception as e:
-    print(f"SendGrid request failed: {e}")
-    sys.exit(0)'
+          if [ -n "${{ secrets.SENDGRID_API_KEY }}" ] && [ -n "${{ secrets.MAIL_FROM }}" ] && [ -n "${{ secrets.MAIL_TO }}" ]; then
+            echo "EMAIL_READY=true" >> "$GITHUB_ENV"
           else
-            echo "SendGrid secrets not configured; skipping email notification."
+            echo "EMAIL_READY=false" >> "$GITHUB_ENV"
+            echo "SendGrid secrets are missing; email notification will be skipped."
           fi
+
+      - name: Send email via SendGrid
+        if: always() && env.EMAIL_READY == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.sendgrid.net
+          server_port: 587
+          username: apikey
+          password: ${{ secrets.SENDGRID_API_KEY }}
+          subject: "[${{ github.repository }}] Playwright report - ${{ job.status }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM }}
+          reply_to: ${{ secrets.MAIL_REPLY_TO }}
+          body: |
+            Playwright test run finished.
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Status: ${{ job.status }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          html_body: |
+            <h3>Playwright report</h3>
+            <p><b>Status:</b> ${{ job.status }}</p>
+            <p><b>Repository:</b> ${{ github.repository }}</p>
+            <p><b>Branch:</b> ${{ github.ref_name }}</p>
+            <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Open GitHub Actions run</a></p>
 
       - name: Fail job if tests failed
         if: steps.tests.outcome == 'failure'
