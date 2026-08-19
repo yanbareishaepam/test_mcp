@@ -50,19 +50,21 @@ jobs:
         env:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          MAIL_TO: yan_bareisha@epam.com
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_REPLY_TO: ${{ secrets.MAIL_REPLY_TO }}
           REPO_NAME: ${{ github.repository }}
           BRANCH_NAME: ${{ github.ref_name }}
           ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [ -n "${SENDGRID_API_KEY:-}" ] && [ -n "${MAIL_FROM:-}" ]; then
+          if [ -n "${SENDGRID_API_KEY:-}" ] && [ -n "${MAIL_FROM:-}" ] && [ -n "${MAIL_TO:-}" ]; then
             python - <<'PY'
             import json, os, sys, urllib.error, urllib.request
 
             api_key = os.environ['SENDGRID_API_KEY']
             mail_from = os.environ['MAIL_FROM']
             mail_to = os.environ['MAIL_TO']
+            reply_to = os.environ.get('MAIL_REPLY_TO', '')
             repo_name = os.environ['REPO_NAME']
             branch_name = os.environ['BRANCH_NAME']
             action_url = os.environ['ACTION_URL']
@@ -90,6 +92,9 @@ jobs:
                 }]
             }
 
+            if reply_to:
+                payload["reply_to"] = {"email": reply_to}
+
             request = urllib.request.Request(
                 "https://api.sendgrid.com/v3/mail/send",
                 data=json.dumps(payload).encode('utf-8'),
@@ -107,6 +112,7 @@ jobs:
                 body = e.read().decode('utf-8', 'replace')
                 print(f"SendGrid API error: {e.code}")
                 print(body)
+                sys.exit(0)
             except Exception as e:
                 print(f"SendGrid request failed: {e}")
                 sys.exit(0)
